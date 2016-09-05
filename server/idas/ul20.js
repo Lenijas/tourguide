@@ -12,89 +12,84 @@
 var http = require('http');
 var Q = require('q');
 var config = require('../config');
+var utils = require('../utils');
 var idasHostname = config.idasHostname;
 var idasPort = config.idasPort;
+var idasAdminPort = config.idasAdminPort;
 var idasFiwareService = config.idasFiwareService;
 var idasFiwareServicePath = config.idasFiwareServicePath;
 var idasApiKey = config.idasApiKey;
 var orionHostname = config.idasContextBrokerHostname;
 var orionPort = config.orionPort;
+var TEMPERATURE = '25';
+var RELATIVEHUMIDITY = '0.2';
 
 var defaultHeaders = {
-  'Content-Type': 'application/json',
-  'X-Auth-Token': 'NULL',
-  'Fiware-Service': idasFiwareService,
-  'Fiware-ServicePath': idasFiwareServicePath
+  'content-type': 'application/json',
+  'x-auth-token': 'NULL',
+  'fiware-service': idasFiwareService,
+  'fiware-servicepath': idasFiwareServicePath
 };
 
 var sensorsTemplates = {
-  'SENSOR_TEMP': {
+  'temperature': {
     'devices': [
       {'device_id': 'DEV_ID',
        'entity_name': 'ENTITY_ID',
-       'protocol': 'PDI-IoTA-UltraLight',
-       'entity_type': 'thing',
+       'protocol': 'UL20',
+       'entity_type': 'Restaurant',
        'timezone': 'Europe/Madrid',
        'attributes': [
          {'object_id': 't',
            'name': 'temperature',
-           'type': 'int'
-         }],
-       'static_attributes': [
-         {'name': 'att_name',
-           'type': 'string',
-           'value': 'value'
-         }
-       ]
+           'type': 'Number'
+         }]
       }
     ]
   },
-  'SENSOR_HUM': {
+  'relativeHumidity': {
     'devices': [
       {'device_id': 'DEV_ID',
        'entity_name': 'ENTITY_ID',
-       'protocol': 'PDI-IoTA-UltraLight',
-       'entity_type': 'thing',
+       'protocol': 'UL20',
+       'entity_type': 'Restaurant',
        'timezone': 'Europe/Madrid',
        'attributes': [
          {'object_id': 'h',
-           'name': 'humidity',
-           'type': 'int'
-         }],
-       'static_attributes': [
-         {'name': 'att_name',
-           'type': 'string',
-           'value': 'value'
-         }
-       ]
+           'name': 'relativeHumidity',
+           'type': 'Number'
+         }]
       }
     ]
   }
 };
 
+/**
+ * Creates a new service in the IoT Agent.
+ *
+ * @return {Promise} response of the IoT Agent.
+*/
 function createService() {
   var idasUrl = '/iot/services';
-  var headers = defaultHeaders;
+  var headers = JSON.parse(JSON.stringify(defaultHeaders));
+  var RESOURCE = '/iot/d';
 
   // build payload
   var data = {
     'services': [
       {
         'apikey': '' + idasApiKey + '',
-        'token': 'token2',
         'cbroker': 'http://' + orionHostname + ':' + orionPort + '',
-        'entity_type': 'thing',
-        'resource': '/iot/d'
+        'resource': RESOURCE
       }
     ]
   };
 
   var dataString = JSON.stringify(data);
-  headers['Content-Length'] = dataString.length;
 
   var options = {
     host: idasHostname,
-    port: idasPort,
+    port: idasAdminPort,
     path: idasUrl,
     method: 'POST',
     headers: headers
@@ -128,36 +123,45 @@ function createService() {
   });
 
   req.on('error', function(error) {
-    console.log('Error on request: ' + error.message);
+    console.error('Error on request: ' + error.message);
     q.reject(error);
   });
 
-  // perform request
+  // Perform request
   req.write(dataString);
   req.end();
   return q.promise;
 }
 
-function registerSensor(name, type) {
+/**
+ * Register a new sensor for a restaurant in the IoT Agent.
+ *
+ * @param {Object} restaurant - Restaurant entity.
+ * @param {String} room - The room where the sensor will be locaed.
+ * @param {String} type - The type of the new sensor.
+ * @return {Promise} Response of the IoT Agent.
+*/
+function registerSensor(restaurant, room, type) {
   var idasUrl = '/iot/devices';
-  var headers = defaultHeaders;
-  var entityName = type + '_' + encodeURIComponent(name);
+  var headers = JSON.parse(JSON.stringify(defaultHeaders));
+  var deviceId = getDeviceId(restaurant, room, type);
 
-  // build payload
+  // Build payload
   var data = sensorsTemplates[type];
   // jshint camelcase: false
   // jscs:disable requireCamelCaseOrUpperCaseIdentifiers
-  data.devices[0].device_id = entityName;
-  data.devices[0].entity_name = entityName;
+  data.devices[0].device_id = deviceId;
+  data.devices[0].entity_name = restaurant.id;
+  data.devices[0].attributes[0].name = type + ':' + room;
   // jshint camelcase: true
   // jscs:enable requireCamelCaseOrUpperCaseIdentifiers
 
   var dataString = JSON.stringify(data);
-  headers['Content-Length'] = dataString.length;
+  headers = utils.completeHeaders(headers, restaurant.department);
 
   var options = {
     host: idasHostname,
-    port: idasPort,
+    port: idasAdminPort,
     path: idasUrl,
     method: 'POST',
     headers: headers
@@ -179,43 +183,51 @@ function registerSensor(name, type) {
         responseObject = JSON.parse(responseString);
       }
       if (res.statusCode == 201) {
-        console.log('Registered new device: ' + entityName);
+        console.log('Registered new device: ' + deviceId);
         q.resolve(responseString);
       } else if (
         res.statusCode == 409 &&
         responseObject.reason == 'There are conflicts, entity already exists') {
-        console.log('Device', entityName, 'already exists.');
+        console.error('Device', deviceId, 'already exists.');
         q.resolve(responseString);
       } else {
-        console.log('Response code:', res.statusCode);
-        console.log('Response headers:', res.headers);
-        console.log('Response data:', responseString);
+        console.error('Response code:', res.statusCode);
+        console.error('Response headers:', res.headers);
+        console.error('Response data:', responseString);
         q.reject(responseString);
       }
     });
   });
 
   req.on('error', function(error) {
-    console.log('Error on request: ' + error.message);
+    console.error('Error on request: ' + error.message);
     q.reject(error);
   });
 
-  // perform request
+  // Perform request
   req.write(dataString);
   req.end();
   return q.promise;
 }
 
-function sendObservation(name, type, data) {
+/**
+ * Send a new measurement for a single sensor.
+ *
+ * @param {String} deviceId - Id of the sensor in the IoT Agent.
+ * @param {String} data - The measurement data.
+ * @param {String} servicePath - The servicePath of the sensor.
+ * @return {Promise} Response of the IoT Agent.
+*/
+function sendObservation(deviceId, data, servicePath) {
   var idasUrl = '/iot/d';
-  var headers = defaultHeaders;
-  var entityName = type + '_' + encodeURIComponent(name);
+  var headers = JSON.parse(JSON.stringify(defaultHeaders));
   var idasParams = [
     'k=' + idasApiKey,
-    'i=' + encodeURIComponent(entityName)
+    'i=' + encodeURIComponent(deviceId)
   ];
 
-  headers['Content-Length'] = data.length;
+  headers['content-type'] = 'text/plain';
+  headers = utils.completeHeaders(headers, servicePath);
 
   var options = {
     host: idasHostname,
@@ -224,9 +236,6 @@ function sendObservation(name, type, data) {
     method: 'POST',
     headers: headers
   };
-
-  // console.log('options:', options);
-  // console.log('data:', data);
 
   var q = Q.defer();
   var req = http.request(options, function(res) {
@@ -244,63 +253,110 @@ function sendObservation(name, type, data) {
         responseObject = JSON.parse(responseString);
       }
       if (res.statusCode == 200) {
-        //console.log('Measurement sent: ' + entityName + ' ' + data);
         q.resolve(responseString);
       } else {
-        console.log('Request:', options);
-        console.log('Response code:', res.statusCode);
-        console.log('Response headers:', res.headers);
-        console.log('Response data:', responseString);
+        console.error('Request:', options);
+        console.error('Response code:', res.statusCode);
+        console.error('Response headers:', res.headers);
+        console.error('Response data:', responseString);
         q.reject(responseString);
       }
     });
   });
 
   req.on('error', function(error) {
-    console.log('Error on request: ' + error.message);
+    console.error('Error on request: ' + error.message);
     q.reject(error);
   });
 
-  // perform request
+  // Perform request
   req.write(data);
   req.end();
   return q.promise;
 }
 
-function updateTemperatureSensor(name, value) {
-  return sendObservation(name, 'SENSOR_TEMP', 't|' + value)
+/**
+ * Send a temperature measurement.
+ *
+ * @param {String} deviceId - Id of the sensor in the IoT Agent.
+ * @param {String} value - The temperature value.
+ * @param {String} servicePath - The servicePath of the sensor.
+ * @return {Promise} Response of the IoT Agent.
+*/
+function updateTemperatureSensor(deviceId, value, servicePath) {
+  return sendObservation(deviceId, 't|' + value, servicePath)
     .then(function(res) {
-      console.log('Updated temperature for ' + name + ': ' + value);
+      console.log('Updated temperature for ' + deviceId + ': ' + value);
     });
 }
 
-function updateHumiditySensor(name, value) {
-  return sendObservation(name, 'SENSOR_HUM', 'h|' + value)
+/**
+ * Send a relative humidity measurement.
+ *
+ * @param {String} deviceId - Id of the sensor in the IoT Agent.
+ * @param {String} value - The relative humidity value.
+ * @param {String} servicePath - The servicePath of the sensor.
+ * @return {Promise} Response of the IoT Agent.
+*/
+function updateRelativeHumiditySensor(deviceId, value, servicePath) {
+  return sendObservation(deviceId, 'h|' + value, servicePath)
     .then(function(res) {
-      console.log('Updated humidity for ' + name + ': ' + value);
+      console.log('Updated relative humidity for ' + deviceId + ': ' + value);
     });
 }
 
-function initializeSensor(name, type) {
+/**
+ * Initialize a sensor with a default value.
+ *
+ * @param {Object} restaurant - Restaurant entity.
+ * @param {String} room - The room where the sensor will be locaed.
+ * @param {String} type - The type of the new sensor.
+ * @return {Promise} Response of the IoT Agent.
+*/
+function initializeSensor(restaurant, room, type) {
+  var deviceId = getDeviceId(restaurant, room, type);
   switch (type) {
-  case 'SENSOR_TEMP':
-    return updateTemperatureSensor(name, '25');
-  case 'SENSOR_HUM':
-    return updateHumiditySensor(name, '20');
+  case 'temperature':
+    return updateTemperatureSensor(deviceId, TEMPERATURE,
+                                   restaurant.department);
+  case 'relativeHumidity':
+    return updateRelativeHumiditySensor(deviceId, RELATIVEHUMIDITY,
+                                        restaurant.department);
   default:
     return Q.reject('Unsupported sensor type: ' + type);
   }
 }
 
-function updateSensor(name, type, value) {
+/**
+ * Send a new measurement for a sensor.
+ *
+ * @param {String} deviceId - Id of the sensor in the IoT Agent.
+ * @param {String} type - The sensor type.
+ * @param {String} value - The measurement value.
+ * @param {String} servicePath - The servicePath of the sensor.
+ * @return {Promise} Response of the IoT Agent.
+*/
+function updateSensor(deviceId, type, value, servicePath) {
   switch (type) {
-  case 'SENSOR_TEMP':
-    return updateTemperatureSensor(name, value);
-  case 'SENSOR_HUM':
-    return updateHumiditySensor(name, value);
+  case 'temperature':
+    return updateTemperatureSensor(deviceId, value, servicePath);
+  case 'relativeHumidity':
+    return updateRelativeHumiditySensor(deviceId, value, servicePath);
   default:
     return Q.reject('Unsupported sensor type: ' + type);
   }
+}
+
+/**
+ * Generate a deviceId for a sensor.
+ *
+ * @param {Object} restaurant - Restaurant entity of the sensor.
+ * @param {String} room - The room where the sensor will be locaed.
+ * @param {String} type - The type of the new sensor.
+ * @return {String} deviceId of the sensor.
+*/
+function getDeviceId(restaurant, room, type) {
+  return restaurant.id + '-' + room + '-' + type;
 }
 
 module.exports = {
@@ -309,6 +365,7 @@ module.exports = {
   sendObservation: sendObservation,
   initializeSensor: initializeSensor,
   updateTemperatureSensor: updateTemperatureSensor,
-  updateHumiditySensor: updateHumiditySensor,
-  updateSensor: updateSensor
+  updateRelativeHumiditySensor: updateRelativeHumiditySensor,
+  updateSensor: updateSensor,
+  getDeviceId: getDeviceId
 };

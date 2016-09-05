@@ -4,7 +4,7 @@ var config = {};
 
 // URL to the FI-WARE Identity Management GE
 // default: https://account.lab.fi-ware.org
-config.idmUrl = 'https://IDM_HOSTNAME';
+config.idmUrl = 'http://IDM_HOSTNAME:IDM_PORT';
 
 // Oauth2 configuration
 // Found on the application profile page after registering
@@ -33,6 +33,7 @@ config.orionPepEnabled = 'ORION_PEP_ENABLED';
 // IDAS
 config.idasHostname = 'IDAS_HOSTNAME';
 config.idasPort = 'IDAS_PORT';
+config.idasAdminPort = 'IDAS_ADMIN_PORT';
 config.idasFiwareService = 'IDAS_FIWARE_SERVICE';
 config.idasFiwareServicePath = 'IDAS_FIWARE_SERVICE_PATH';
 config.idasApiKey = 'IDAS_API_KEY';

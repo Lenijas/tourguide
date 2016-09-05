@@ -51,7 +51,9 @@ app.get('/logout', auth.logout);
 
 // Auth Middleware - This will check if the token exists and is valid
 // Only the requests that start with /api/orion/* will be checked
-app.all('/api/orion/*', auth.validateRequest);
+app.post('/api/orion/*', auth.validateRequest);
+app.patch('/api/orion/*', auth.validateRequest);
+app.delete('/api/orion/*', auth.validateRequest);
 
 // API REST definition
 
@@ -89,10 +91,6 @@ app.get('/api/orion/reservations/organization/:org',
   orion.getOrganizationReservations);
 app.get('/api/orion/reservations/restaurant/:restaurant/from/:from/to/:to',
   orion.getReservationsByDate);
-
-// Sensors
-
-app.post('/api/sensors', orion.updateSensors);
 
 // END API REST
 
