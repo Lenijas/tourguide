@@ -19,7 +19,7 @@ before_script:
   - npm install -g grunt-cli
   - cd $DOCKER_DIR
   - make tutorials.tourguide-app
-  - cd ..
+  - cd ../..
 
 script:
   - cd $TEST_DIR && npm install && npm test
