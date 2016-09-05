@@ -10,13 +10,16 @@ services:
   - docker-compose
 
 env:
-  - TEST_DIR=server CLIENT_DIR=client
+  - TEST_DIR=server CLIENT_DIR=client DOCKER_DIR=docker/images
 
 before_install:
   - npm install -g npm
 
 before_script:
   - npm install -g grunt-cli
+  - cd $DOCKER_DIR
+  - make tutorials.tourguide-app
+  - cd ..
 
 script:
   - cd $TEST_DIR && npm install && npm test
